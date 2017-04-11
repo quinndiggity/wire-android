@@ -154,7 +154,7 @@ class ImageFragment extends BaseFragment[ImageFragment.Container] with FragmentH
     }
 
     currentConversation.on(Threading.Ui) { conv =>
-      conv.name.foreach(headerTitle.setText)
+      headerTitle.setText(conv.displayName)
     }
 
     collectionController.focusedItem.on(Threading.Ui) {
