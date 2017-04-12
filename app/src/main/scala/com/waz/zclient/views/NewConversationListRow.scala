@@ -19,7 +19,7 @@ package com.waz.zclient.views
 
 import android.content.Context
 import android.util.AttributeSet
-import android.view.{View, ViewGroup}
+import android.view.{Gravity, View, ViewGroup}
 import android.widget.LinearLayout
 import android.widget.LinearLayout.LayoutParams
 import com.waz.api.IConversation
@@ -29,7 +29,7 @@ import com.waz.threading.Threading
 import com.waz.utils.events.Signal
 import com.waz.zclient.controllers.global.AccentColorController
 import com.waz.zclient.ui.text.TypefaceTextView
-import com.waz.zclient.ui.utils.ColorUtils
+import com.waz.zclient.ui.utils.{ColorUtils, TextViewUtils}
 import com.waz.zclient.utils.ViewUtils
 import com.waz.zclient.{R, ViewHelper}
 import com.waz.zclient.utils.ContextUtils._
@@ -67,7 +67,6 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     user <- lastMessage.fold2[Signal[Option[UserData]]](Signal.const(Option.empty[UserData]), message => z.usersStorage.optSignal(message.userId))
   } yield (lastMessage, user, lastMessage.exists(_.userId == self))
 
-
   val conversation = for {
     z <- zms
     convId <- conversationId
@@ -99,7 +98,8 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   lastMessageInfo.on(Threading.Ui) {
     case (Some(message), Some(user), false) if message.contentString.nonEmpty =>
       showSubtitle()
-      subtitle.setText(s"${user.getDisplayName}: ${message.contentString}")
+      subtitle.setText(s"[[${user.getDisplayName}:]] ${message.contentString}")
+      TextViewUtils.boldText(subtitle)
     case (Some(message), _, _) if message.contentString.nonEmpty =>
       showSubtitle()
       subtitle.setText(s"${message.contentString}")
@@ -108,7 +108,7 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
       subtitle.setText("")
   }
 
-  conversationInfo.on(Threading.Ui) { convInfo  =>
+  conversationInfo.on(Threading.Background) { convInfo  =>
     avatar.setMembers(convInfo._2.flatMap(_.picture), convInfo._1)
   }
 
@@ -117,7 +117,7 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     if (count > 0) {
       statusPill.setVisibility(View.VISIBLE)
     } else {
-      statusPill.setVisibility(View.GONE)
+      statusPill.setVisibility(View.INVISIBLE)
     }
   }
 
@@ -130,15 +130,9 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
       separator.setBackgroundColor(getColor(R.color.white_8))
   }
 
-  private def showSubtitle(): Unit = {
-    title.setPadding(0, 0, 0, 0)
-    //subtitle.setVisibility(View.VISIBLE)
-  }
+  private def showSubtitle(): Unit = title.setGravity(Gravity.TOP)
 
-  private def hideSubtitle(): Unit = {
-    title.setPadding(0, getDimenPx(R.dimen.conversation_list__row__title__top), 0, 0)
-    //subtitle.setVisibility(View.GONE)
-  }
+  private def hideSubtitle(): Unit = title.setGravity(Gravity.CENTER_VERTICAL)
 
   def needsRedraw: Boolean = false
   def redraw(): Unit = {}
@@ -149,9 +143,10 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     if (!conversationId.currentValue.contains(ConvId(iConversation.getId))) {
       title.setText(iConversation.getName)
       subtitle.setText("")
-      avatar.setMembers(Seq(), iConversation.getType)
+      statusPill.setVisibility(View.INVISIBLE)
+      avatar.setConversationType(iConversation.getType)
     }
-    conversationId ! ConvId(iConversation.getId)
+    conversationId.publish(ConvId(iConversation.getId), Threading.Background)
   }
 
   def isArchiveTarget: Boolean = false

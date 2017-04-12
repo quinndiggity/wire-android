@@ -18,7 +18,6 @@
 package com.waz.zclient.views
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.util.AttributeSet
 import android.view.View
@@ -56,25 +55,32 @@ class ConversationAvatarView (context: Context, attrs: AttributeSet, style: Int)
     images._1.setImageDrawable(new ImageAssetDrawable(images._2, scaleType = ScaleType.CenterCrop, request = RequestBuilder.Single, background = Some(new ColorDrawable(getColor(R.color.black_8))), animate = false))
   }
 
-  avatarSingle.setImageDrawable(new ImageAssetDrawable(imageSources.head, scaleType = ScaleType.CenterCrop, request = RequestBuilder.Round))
+  avatarSingle.setImageDrawable(new ImageAssetDrawable(imageSources.head, scaleType = ScaleType.CenterCrop, request = RequestBuilder.Round, animate = false))
 
   def setMembers(membersPictures: Seq[AssetId], conversationType: ConversationType): Unit = {
     conversationType match {
       case ConversationType.Group =>
-        avatarGroup.setVisibility(View.VISIBLE)
-        avatarSingle.setVisibility(View.GONE)
-        setBackground(groupBackgroundDrawable)
         imageSources.zipAll(membersPictures.take(4).map(Some(_)), Signal.empty[ImageSource], None).foreach {
           case (imageSource: SourceSignal[ImageSource], Some(assetId)) => imageSource ! WireImage(assetId)
           case (imageSource: SourceSignal[ImageSource], None) => imageSource ! NoImage()
         }
       case ConversationType.OneToOne if membersPictures.nonEmpty =>
-        avatarGroup.setVisibility(View.GONE)
-        avatarSingle.setVisibility(View.VISIBLE)
-        setBackground(null)
         membersPictures.headOption.foreach(imageSources.head ! WireImage(_))
       case _ =>
         imageSources.foreach(_ ! NoImage())
+    }
+  }
+
+  def setConversationType(conversationType: ConversationType): Unit ={
+    conversationType match {
+      case ConversationType.Group =>
+        avatarGroup.setVisibility(View.VISIBLE)
+        avatarSingle.setVisibility(View.GONE)
+        setBackground(groupBackgroundDrawable)
+      case ConversationType.OneToOne =>
+        avatarGroup.setVisibility(View.GONE)
+        avatarSingle.setVisibility(View.VISIBLE)
+        setBackground(null)
     }
   }
 }
