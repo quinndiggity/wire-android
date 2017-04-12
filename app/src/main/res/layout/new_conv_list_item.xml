@@ -18,11 +18,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
               xmlns:app="http://schemas.android.com/apk/res-auto"
               android:orientation="horizontal"
               android:layout_width="match_parent"
-              android:layout_height="56dp">
+              android:layout_height="@dimen/conversation_list__row__height">
 
 
     <com.waz.zclient.views.ConversationAvatarView
@@ -45,6 +45,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginStart="0dp"
             android:layout_toStartOf="@+id/conversation_status_pill"
             android:ellipsize="end"
             android:maxLines="1"
@@ -56,6 +58,8 @@
             android:id="@+id/conversation_subtitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="16dp"
+            android:layout_marginStart="0dp"
             android:layout_below="@+id/conversation_title"
             android:layout_toStartOf="@+id/conversation_status_pill"
             android:ellipsize="end"
@@ -90,4 +94,4 @@
 
     </RelativeLayout>
 
-</LinearLayout>
+</merge>

@@ -396,7 +396,7 @@ public class ConversationListAdapter extends BaseAdapter {
             }
         });
 
-        setListRowPaddingTopAndBottom(conversationListRowItem, position);
+        //setListRowPaddingTopAndBottom(conversationListRowItem, position);
 
         return conversationListRowItem;
     }

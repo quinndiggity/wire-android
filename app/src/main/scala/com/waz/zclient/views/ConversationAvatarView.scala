@@ -40,7 +40,6 @@ class ConversationAvatarView (context: Context, attrs: AttributeSet, style: Int)
   inflate(R.layout.view_conversation_avatar)
   setLayoutParams(new LayoutParams(getDimenPx(R.dimen.conversation_list__row__avatar_size), getDimenPx(R.dimen.conversation_list__row__avatar_size)))
 
-  private val transparentDrawable = new ColorDrawable(Color.TRANSPARENT)
   private val groupBackgroundDrawable = getDrawable(R.drawable.conversation_group_avatar_background)
 
   private val avatarStartTop = ViewUtils.getView(this, R.id.conversation_avatar_start_top).asInstanceOf[ImageView]
@@ -54,7 +53,7 @@ class ConversationAvatarView (context: Context, attrs: AttributeSet, style: Int)
   private val imageSources = Seq.fill(4)(Signal[ImageSource]())
 
   Seq(avatarStartTop, avatarEndTop, avatarStartBottom, avatarEndBottom).zip(imageSources).foreach{ images =>
-    images._1.setImageDrawable(new ImageAssetDrawable(images._2, scaleType = ScaleType.CenterCrop, request = RequestBuilder.Single, background = Some(new ColorDrawable(getColor(R.color.black_8)))))
+    images._1.setImageDrawable(new ImageAssetDrawable(images._2, scaleType = ScaleType.CenterCrop, request = RequestBuilder.Single, background = Some(new ColorDrawable(getColor(R.color.black_8))), animate = false))
   }
 
   avatarSingle.setImageDrawable(new ImageAssetDrawable(imageSources.head, scaleType = ScaleType.CenterCrop, request = RequestBuilder.Round))
@@ -72,7 +71,7 @@ class ConversationAvatarView (context: Context, attrs: AttributeSet, style: Int)
       case ConversationType.OneToOne if membersPictures.nonEmpty =>
         avatarGroup.setVisibility(View.GONE)
         avatarSingle.setVisibility(View.VISIBLE)
-        setBackground(transparentDrawable)
+        setBackground(null)
         membersPictures.headOption.foreach(imageSources.head ! WireImage(_))
       case _ =>
         imageSources.foreach(_ ! NoImage())

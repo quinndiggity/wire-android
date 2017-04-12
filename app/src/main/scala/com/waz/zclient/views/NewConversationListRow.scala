@@ -19,11 +19,11 @@ package com.waz.zclient.views
 
 import android.content.Context
 import android.util.AttributeSet
-import android.view.View
+import android.view.{View, ViewGroup}
 import android.widget.LinearLayout
-import com.waz.ZLog.ImplicitTag._
+import android.widget.LinearLayout.LayoutParams
 import com.waz.api.IConversation
-import com.waz.model.{ConvId, UserData}
+import com.waz.model._
 import com.waz.service.ZMessaging
 import com.waz.threading.Threading
 import com.waz.utils.events.Signal
@@ -34,11 +34,15 @@ import com.waz.zclient.utils.ViewUtils
 import com.waz.zclient.{R, ViewHelper}
 import com.waz.zclient.utils.ContextUtils._
 import com.waz.utils._
+import com.waz.ZLog._
+import com.waz.ZLog.ImplicitTag._
 
 class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) extends LinearLayout(context, attrs, style) with ViewHelper { self =>
   def this(context: Context, attrs: AttributeSet) = this(context, attrs, 0)
   def this(context: Context) = this(context, null, 0)
 
+  setOrientation(LinearLayout.HORIZONTAL)
+  setLayoutParams(new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, getDimenPx(R.dimen.conversation_list__row__height)))
   inflate(R.layout.new_conv_list_item)
 
   val zms = inject[Signal[ZMessaging]]
@@ -46,6 +50,23 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   val selfId = zms.map(_.selfUserId)
 
   private val conversationId = Signal[ConvId]()
+
+  val title = ViewUtils.getView(this, R.id.conversation_title).asInstanceOf[TypefaceTextView]
+  val subtitle = ViewUtils.getView(this, R.id.conversation_subtitle).asInstanceOf[TypefaceTextView]
+  val avatar = ViewUtils.getView(this, R.id.conversation_icon).asInstanceOf[ConversationAvatarView]
+  val statusPill = ViewUtils.getView(this, R.id.conversation_status_pill).asInstanceOf[TypefaceTextView]
+  val separator = ViewUtils.getView(this, R.id.conversation_separator).asInstanceOf[View]
+
+  var iConversation: IConversation = null
+
+  val lastMessageInfo = for {
+    z <- zms
+    self <- selfId
+    convId <- conversationId
+    lastMessage <- z.messagesStorage.lastMessage(convId)
+    user <- lastMessage.fold2[Signal[Option[UserData]]](Signal.const(Option.empty[UserData]), message => z.usersStorage.optSignal(message.userId))
+  } yield (lastMessage, user, lastMessage.exists(_.userId == self))
+
 
   val conversation = for {
     z <- zms
@@ -57,18 +78,11 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
 
   val conversationInfo = for {
     z <- zms
+    self <- selfId
     Some(conv) <- conversation
     memberIds <- z.membersStorage.activeMembers(conv.id)
     memberSeq <- Signal.future(z.usersStorage.getAll(memberIds))
-    self <- selfId
   } yield (conv.convType, memberSeq.flatten.filter(_.id != self))
-
-  val title = ViewUtils.getView(this, R.id.conversation_title).asInstanceOf[TypefaceTextView]
-  val subtitle = ViewUtils.getView(this, R.id.conversation_subtitle).asInstanceOf[TypefaceTextView]
-  val avatar = ViewUtils.getView(this, R.id.conversation_icon).asInstanceOf[ConversationAvatarView]
-  val statusPill = ViewUtils.getView(this, R.id.conversation_status_pill).asInstanceOf[TypefaceTextView]
-  val separator = ViewUtils.getView(this, R.id.conversation_separator).asInstanceOf[View]
-  var iConversation: IConversation = null
 
   val unreadCount = for {
     z <- zms
@@ -76,34 +90,11 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     unreadCount <- z.messagesStorage.unreadCount(convId)
   } yield unreadCount
 
-  val lastMessageInfo = for {
-    z <- zms
-    convId <- conversationId
-    self <- selfId
-    lastMessage <- z.messagesStorage.lastMessage(convId)
-    user <- lastMessage.fold2[Signal[Option[UserData]]](Signal.const(Option.empty[UserData]), message => z.usersStorage.optSignal(message.userId))
-  } yield (lastMessage, user, lastMessage.exists(_.userId == self))
-
   val isCurrentConversation = for {
     z <- zms
     convId <- conversationId
     currentConv <- z.convsStats.selectedConversationId
   } yield currentConv.contains(convId)
-
-  conversationName.on(Threading.Ui) { title.setText }
-
-  conversationInfo.on(Threading.Ui) { convInfo  =>
-    avatar.setMembers(convInfo._2.flatMap(_.picture), convInfo._1)
-  }
-
-  unreadCount.on(Threading.Ui) { count =>
-    statusPill.setText(count.toString)
-    if (count > 0) {
-      statusPill.setVisibility(View.VISIBLE)
-    } else {
-      statusPill.setVisibility(View.INVISIBLE)
-    }
-  }
 
   lastMessageInfo.on(Threading.Ui) {
     case (Some(message), Some(user), false) if message.contentString.nonEmpty =>
@@ -117,6 +108,21 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
       subtitle.setText("")
   }
 
+  conversationInfo.on(Threading.Ui) { convInfo  =>
+    avatar.setMembers(convInfo._2.flatMap(_.picture), convInfo._1)
+  }
+
+  unreadCount.on(Threading.Ui) { count =>
+    statusPill.setText(count.toString)
+    if (count > 0) {
+      statusPill.setVisibility(View.VISIBLE)
+    } else {
+      statusPill.setVisibility(View.GONE)
+    }
+  }
+
+  conversationName.on(Threading.Ui) { title.setText }
+
   isCurrentConversation.zip(accentColor).on(Threading.Ui){
     case (true, color) =>
       separator.setBackgroundColor(ColorUtils.injectAlpha(0.5f, color.getColor()))
@@ -126,19 +132,16 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
 
   private def showSubtitle(): Unit = {
     title.setPadding(0, 0, 0, 0)
-    subtitle.setVisibility(View.VISIBLE)
+    //subtitle.setVisibility(View.VISIBLE)
   }
 
   private def hideSubtitle(): Unit = {
     title.setPadding(0, getDimenPx(R.dimen.conversation_list__row__title__top), 0, 0)
-    subtitle.setVisibility(View.GONE)
+    //subtitle.setVisibility(View.GONE)
   }
 
   def needsRedraw: Boolean = false
-  def redraw(): Unit = {
-    title.setText("")
-    conversationName.head.foreach(title.setText)(Threading.Ui)
-  }
+  def redraw(): Unit = {}
 
   def getConversation: IConversation = iConversation
   def setConversation(iConversation: IConversation): Unit = {
