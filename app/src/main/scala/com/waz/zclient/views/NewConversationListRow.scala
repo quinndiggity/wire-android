@@ -50,6 +50,7 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   def this(context: Context, attrs: AttributeSet) = this(context, attrs, 0)
   def this(context: Context) = this(context, null, 0)
 
+  setLayoutParams(new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, getDimenPx(R.dimen.conversation_list__row__height)))
   inflate(R.layout.new_conv_list_item)
 
   val zms = inject[Signal[ZMessaging]]
@@ -64,6 +65,7 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   val avatar = ViewUtils.getView(this, R.id.conversation_icon).asInstanceOf[ConversationAvatarView]
   val statusPill = ViewUtils.getView(this, R.id.conversation_status_pill).asInstanceOf[TypefaceTextView]
   val separator = ViewUtils.getView(this, R.id.conversation_separator).asInstanceOf[View]
+  val menuIndicatorView = ViewUtils.getView(this, R.id.conversation_menu_indicator).asInstanceOf[MenuIndicatorView]
 
   var iConversation: IConversation = null
 
@@ -139,7 +141,6 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   }
 
   private var conversationCallback: ConversationCallback = null
-  private var archiveTarget: Boolean = false
   private var maxAlpha: Float = .0f
   private var openState: Boolean = false
   private val menuOpenOffset: Int = getDimenPx(R.dimen.list__menu_indicator__max_swipe_offset)
@@ -151,10 +152,6 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   private def showSubtitle(): Unit = title.setGravity(Gravity.TOP)
 
   private def hideSubtitle(): Unit = title.setGravity(Gravity.CENTER_VERTICAL)
-
-  def needsRedraw: Boolean = false
-
-  def redraw(): Unit = {}
 
   def getConversation: IConversation = iConversation
 
@@ -174,10 +171,6 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   }
 
   //TODO: Copied from java version...
-  val menuIndicatorView = new MenuIndicatorView(getContext)
-  val layoutParams: FrameLayout.LayoutParams = new FrameLayout.LayoutParams(getResources.getDimensionPixelSize(R.dimen.conversation_list__left_icon_width), ViewGroup.LayoutParams.MATCH_PARENT)
-  layoutParams.gravity = Gravity.LEFT
-  menuIndicatorView.setLayoutParams(layoutParams)
   menuIndicatorView.setMaxOffset(menuOpenOffset)
   menuIndicatorView.setOnClickListener(new View.OnClickListener() {
     def onClick(v: View) {
@@ -185,9 +178,10 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
       conversationCallback.onConversationListRowSwiped(iConversation, self)
     }
   })
-  addView(menuIndicatorView)
 
-  def isArchiveTarget: Boolean = archiveTarget
+  def isArchiveTarget: Boolean = false
+  def needsRedraw: Boolean = false
+  def redraw(): Unit = {}
 
   override def open(): Unit =  {
     if (openState) return
