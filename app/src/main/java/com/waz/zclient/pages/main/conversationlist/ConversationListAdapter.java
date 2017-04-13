@@ -360,10 +360,9 @@ public class ConversationListAdapter extends BaseAdapter {
         }
 
         conversationListRowItem.setAlpha(1f);
-        //conversationListRowItem.setMaxAlpha(maxAlpha);
+        conversationListRowItem.setMaxAlpha(maxAlpha);
         conversationListRowItem.setId(position);
-        //conversationListRowItem.setSwipeable(mode == ConversationListFragment.Mode.NORMAL);
-        //conversationListRowItem.showIndicatorView(mode == ConversationListFragment.Mode.NORMAL);
+        conversationListRowItem.setSwipeable(mode == ConversationListFragment.Mode.NORMAL);
 
         // integrate model
         final IConversation conversation = getItem(position);
@@ -376,7 +375,7 @@ public class ConversationListAdapter extends BaseAdapter {
 
         //conversationListRowItem.setAccentColor(accentColor);
         conversationListRowItem.setConversation(conversation);
-        //conversationListRowItem.setConversationCallback(conversationCallback);
+        conversationListRowItem.setConversationCallback(conversationCallback);
         conversationListRowItem.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
