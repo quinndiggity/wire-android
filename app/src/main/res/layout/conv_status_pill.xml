@@ -22,7 +22,7 @@
              xmlns:app="http://schemas.android.com/apk/res-auto"
              android:layout_width="wrap_content"
              android:layout_height="20dp"
-             android:background="@drawable/conversation_status_pill_green"
+             android:background="@drawable/conversation_status_pill"
              >
 
     <com.waz.zclient.ui.text.TypefaceTextView
@@ -37,7 +37,7 @@
         android:textColor="@color/white"
         android:textSize="@dimen/wire__text_size__small"
         app:font="@string/wire__typeface__bold"
-        android:visibility="gone"
+        android:visibility="invisible"
         />
 
     <com.waz.zclient.ui.text.GlyphTextView
@@ -50,7 +50,7 @@
         android:textSize="@dimen/wire__text_size__small"
         android:paddingStart="10dp"
         android:paddingEnd="10dp"
-        android:visibility="gone"
+        android:visibility="invisible"
         />
 
 </merge>

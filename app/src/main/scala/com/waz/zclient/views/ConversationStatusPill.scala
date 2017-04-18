@@ -45,24 +45,23 @@ class ConversationStatusPill(context: Context, attrs: AttributeSet, style: Int) 
     override def onClick(v: View) = onClickEvent ! (())
   })
 
-  def setGlyph(glyphId: Int, backgroundId: Int = R.drawable.conversation_status_pill): Unit ={
+  def setGlyph(glyphId: Int, backgroundId: Int = R.drawable.conversation_status_pill): Unit = {
+    setVisibility(View.VISIBLE)
     glyphView.setVisibility(View.VISIBLE)
-    textView.setVisibility(View.GONE)
+    textView.setVisibility(View.INVISIBLE)
     setBackground(getDrawable(backgroundId))
     glyphView.setText(glyphId)
   }
 
-  def setText(text: String, backgroundId: Int = R.drawable.conversation_status_pill): Unit ={
+  def setText(text: String, backgroundId: Int = R.drawable.conversation_status_pill): Unit = {
+    setVisibility(View.VISIBLE)
     textView.setVisibility(View.VISIBLE)
-    glyphView.setVisibility(View.GONE)
+    glyphView.setVisibility(View.INVISIBLE)
     setBackground(getDrawable(backgroundId))
     textView.setText(text)
   }
 
-  def setHidden() = {
-    textView.setVisibility(View.GONE)
-    glyphView.setVisibility(View.GONE)
-  }
+  def setHidden() = setVisibility(View.INVISIBLE)
 
   def setMuted(): Unit = setGlyph(R.string.glyph__silence)
   def setWaitingForConnection(): Unit = setGlyph(R.string.glyph__clock)
@@ -70,5 +69,6 @@ class ConversationStatusPill(context: Context, attrs: AttributeSet, style: Int) 
 
   def setCount(count: Int): Unit = setText(count.toString)
   def setCalling() = setText(getString(R.string.conversation_list__action_join_call), R.drawable.conversation_status_pill_green)
-  def setMissedCall() = setGlyph(R.string.glyph__call)
+  def setOngoingCall() = setGlyph(R.string.glyph__call, R.drawable.conversation_status_pill_green)
+  def setMissedCall() = setGlyph(R.string.glyph__end_call)
 }

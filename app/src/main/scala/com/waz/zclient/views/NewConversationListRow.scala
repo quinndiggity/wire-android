@@ -77,45 +77,41 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     conv <- z.convsStorage.signal(convId)
   } yield conv
 
+  val conversationName = conversation.map(_.displayName)
+
   val statusPillInfo = for {
     z <- zms
     conv <- conversation
     unreadCount <- z.messagesStorage.unreadCount(conv.id)
   } yield (unreadCount, conv.muted, conv.unjoinedCall, conv.missedCallMessage.nonEmpty)
 
-  val lastMessageInfo = for {
+  val subtitleText = for {
     z <- zms
     self <- selfId
     conv <- conversation
     lastReadInstant <- z.messagesStorage.lastRead(conv.id)
     unread <- z.messagesStorage.unreadCount(conv.id)
-    lastUnreadMessage <- Signal.future(z.messagesStorage.findMessagesFrom(conv.id, lastReadInstant.plusMillis(1)).map(_.lastOption))
-    user <- lastUnreadMessage.fold2[Signal[Option[UserData]]](Signal.const(Option.empty[UserData]), message => z.usersStorage.optSignal(message.userId))
-  } yield (lastUnreadMessage, user, lastUnreadMessage.exists(_.userId == self), conv.muted, conv.convType, unread)
+    lastMessages <- Signal.future(z.messagesStorage.findMessagesFrom(conv.id, lastReadInstant.plusMillis(1)).map(_.filter(_.userId != self)))
+    lastMessageUser <- lastMessages.lastOption.fold2(Signal.const(Option.empty[UserData]), message => z.usersStorage.optSignal(message.userId))
+  } yield {
+    if (conv.muted) {
+      subtitleStringForMessages(lastMessages)
+    } else {
+      val sender = if (conv.convType == ConversationType.Group) lastMessageUser.fold2("", u => s"[[${u.getDisplayName}:]] ") else ""
+      val content = lastMessages.lastOption.fold2("", subtitleStringForMessage)
+      if (content.isEmpty){
+        ""
+      } else {
+        sender + content
+      }
+    }
+  }
 
-  //} yield (unreadMessages.filter(_.userId != self), user, conv.muted, conv.convType, unread)
-
-  val conversationName = conversation.map(_.displayName)
-
-  val conversationInfo = for {
-    z <- zms
-    self <- selfId
-    conv <- conversation
-    memberIds <- z.membersStorage.activeMembers(conv.id)
-    memberSeq <- Signal.future(z.usersStorage.getAll(memberIds))
-  } yield (conv.convType, memberSeq.flatten.filter(_.id != self))
-
-  lastMessageInfo.on(Threading.Ui) {
-    case (Some(message), Some(user), false, false, ConversationType.Group, _) =>
+  subtitleText.on(Threading.Ui) {
+    case text if text.nonEmpty =>
       showSubtitle()
-      subtitle.setText(s"[[${user.getDisplayName}:]] ${subtitleStringForMessage(message)}")
+      subtitle.setText(text)
       TextViewUtils.boldText(subtitle)
-    case (Some(message), Some(user), false, false, ConversationType.OneToOne, _) =>
-      showSubtitle()
-      subtitle.setText(subtitleStringForMessage(message))
-    case (_, _, _, true, _, count) if count > 0 =>
-      showSubtitle()
-      subtitle.setText(s"$count new messages")
     case _ =>
       hideSubtitle()
       subtitle.setText("")
@@ -144,10 +140,34 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   }
 
   def subtitleStringForMessages(messages: Iterable[MessageData]): String = {
-    ""
+    val normalMessageCount = messages.count(m => !m.isSystemMessage && m.msgType != Message.Type.KNOCK)
+    val missedCallCount = messages.count(_.msgType == Message.Type.MISSED_CALL)
+    val pingCount = messages.count(_.msgType == Message.Type.KNOCK)
+    val likesCount = 0//TODO: how to get this?
+    val unsentCount = messages.count(_.state == Message.Status.FAILED)
+
+    //TODO: Strings with quantities
+    val unsentString = if (unsentCount > 0)
+      if (normalMessageCount + missedCallCount + pingCount + likesCount == 0) "⚠ Unsent message️" else "⚠️"
+    else ""
+    val strings = Seq(
+    if (normalMessageCount > 0) s"$normalMessageCount new message" else "",
+    if (missedCallCount > 0)    s"$missedCallCount missed calls"   else "",
+    if (pingCount > 0)          s"$pingCount pings"                else "",
+    if (likesCount > 0)         s"$likesCount ♥"                   else ""
+    ).filter(_.nonEmpty)
+    Seq(unsentString, strings.mkString(", ")).filter(_.nonEmpty).mkString(" | ")
   }
 
-  conversationInfo.on(Threading.Background) { convInfo  =>
+  val avatarInfo = for {
+    z <- zms
+    self <- selfId
+    conv <- conversation
+    memberIds <- z.membersStorage.activeMembers(conv.id)
+    memberSeq <- Signal.future(z.usersStorage.getAll(memberIds))
+  } yield (conv.convType, memberSeq.flatten.filter(_.id != self))
+
+  avatarInfo.on(Threading.Background) { convInfo  =>
     avatar.setMembers(convInfo._2.flatMap(_.picture), convInfo._1)
   }
 
@@ -280,7 +300,6 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
 
   override def setMoveTo(value: Float) = {
     moveTo = value
-    container.setPadding(getPaddingLeft, getPaddingTop, moveTo.toInt, getPaddingBottom)
     container.setTranslationX(moveTo)
     menuIndicatorView.setClipX(moveTo.toInt)
   }

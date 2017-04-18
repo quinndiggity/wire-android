@@ -240,7 +240,6 @@ public class OptionsMenuFragment extends BaseFragment<OptionsMenuFragment.Contai
                 break;
             case WAIT_FOR_CONNECTION:
                 connectUser(conversation.getOtherParticipant());
-                break;
         }
     }
 
