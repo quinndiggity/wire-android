@@ -21,27 +21,27 @@ import android.animation.ObjectAnimator
 import android.content.Context
 import android.util.AttributeSet
 import android.view.{Gravity, View, ViewGroup}
-import android.widget.{FrameLayout, LinearLayout}
 import android.widget.LinearLayout.LayoutParams
-import com.waz.api.IConversation
+import android.widget.{FrameLayout, LinearLayout}
+import com.waz.ZLog.ImplicitTag._
+import com.waz.api.{IConversation, Message}
+import com.waz.model.ConversationData.ConversationType
 import com.waz.model._
 import com.waz.service.ZMessaging
 import com.waz.threading.Threading
+import com.waz.utils._
 import com.waz.utils.events.Signal
 import com.waz.zclient.controllers.global.AccentColorController
-import com.waz.zclient.ui.text.TypefaceTextView
-import com.waz.zclient.ui.utils.{ColorUtils, TextViewUtils}
-import com.waz.zclient.utils.ViewUtils
-import com.waz.zclient.{R, ViewHelper}
-import com.waz.zclient.utils.ContextUtils._
-import com.waz.utils._
-import com.waz.ZLog._
-import com.waz.ZLog.ImplicitTag._
 import com.waz.zclient.pages.main.conversationlist.views.ConversationCallback
 import com.waz.zclient.pages.main.conversationlist.views.listview.SwipeListView
 import com.waz.zclient.pages.main.conversationlist.views.row.MenuIndicatorView
 import com.waz.zclient.ui.animation.interpolators.penner.Expo
+import com.waz.zclient.ui.text.TypefaceTextView
+import com.waz.zclient.ui.utils.TextViewUtils
 import com.waz.zclient.ui.views.properties.MoveToAnimateable
+import com.waz.zclient.utils.ContextUtils._
+import com.waz.zclient.utils.ViewUtils
+import com.waz.zclient.{R, ViewHelper}
 
 class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) extends FrameLayout(context, attrs, style)
     with ViewHelper
@@ -49,6 +49,8 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     with MoveToAnimateable { self =>
   def this(context: Context, attrs: AttributeSet) = this(context, attrs, 0)
   def this(context: Context) = this(context, null, 0)
+
+  implicit val executionContext = Threading.Background
 
   setLayoutParams(new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, getDimenPx(R.dimen.conversation_list__row__height)))
   inflate(R.layout.new_conv_list_item)
@@ -63,82 +65,108 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   val title = ViewUtils.getView(this, R.id.conversation_title).asInstanceOf[TypefaceTextView]
   val subtitle = ViewUtils.getView(this, R.id.conversation_subtitle).asInstanceOf[TypefaceTextView]
   val avatar = ViewUtils.getView(this, R.id.conversation_icon).asInstanceOf[ConversationAvatarView]
-  val statusPill = ViewUtils.getView(this, R.id.conversation_status_pill).asInstanceOf[TypefaceTextView]
+  val statusPill = ViewUtils.getView(this, R.id.conversation_status_pill).asInstanceOf[ConversationStatusPill]
   val separator = ViewUtils.getView(this, R.id.conversation_separator).asInstanceOf[View]
   val menuIndicatorView = ViewUtils.getView(this, R.id.conversation_menu_indicator).asInstanceOf[MenuIndicatorView]
 
   var iConversation: IConversation = null
 
-  val lastMessageInfo = for {
-    z <- zms
-    self <- selfId
-    convId <- conversationId
-    lastMessage <- z.messagesStorage.lastMessage(convId)
-    user <- lastMessage.fold2[Signal[Option[UserData]]](Signal.const(Option.empty[UserData]), message => z.usersStorage.optSignal(message.userId))
-  } yield (lastMessage, user, lastMessage.exists(_.userId == self))
-
   val conversation = for {
     z <- zms
     convId <- conversationId
-    conv <- Signal.future(z.convsStorage.get(convId))
+    conv <- z.convsStorage.signal(convId)
   } yield conv
 
-  val conversationName = conversation.map(_.fold("")(_.displayName))
+  val statusPillInfo = for {
+    z <- zms
+    conv <- conversation
+    unreadCount <- z.messagesStorage.unreadCount(conv.id)
+  } yield (unreadCount, conv.muted, conv.unjoinedCall, conv.missedCallMessage.nonEmpty)
+
+  val lastMessageInfo = for {
+    z <- zms
+    self <- selfId
+    conv <- conversation
+    lastReadInstant <- z.messagesStorage.lastRead(conv.id)
+    unread <- z.messagesStorage.unreadCount(conv.id)
+    lastUnreadMessage <- Signal.future(z.messagesStorage.findMessagesFrom(conv.id, lastReadInstant.plusMillis(1)).map(_.lastOption))
+    user <- lastUnreadMessage.fold2[Signal[Option[UserData]]](Signal.const(Option.empty[UserData]), message => z.usersStorage.optSignal(message.userId))
+  } yield (lastUnreadMessage, user, lastUnreadMessage.exists(_.userId == self), conv.muted, conv.convType, unread)
+
+  //} yield (unreadMessages.filter(_.userId != self), user, conv.muted, conv.convType, unread)
+
+  val conversationName = conversation.map(_.displayName)
 
   val conversationInfo = for {
     z <- zms
     self <- selfId
-    Some(conv) <- conversation
+    conv <- conversation
     memberIds <- z.membersStorage.activeMembers(conv.id)
     memberSeq <- Signal.future(z.usersStorage.getAll(memberIds))
   } yield (conv.convType, memberSeq.flatten.filter(_.id != self))
 
-  val unreadCount = for {
-    z <- zms
-    convId <- conversationId
-    unreadCount <- z.messagesStorage.unreadCount(convId)
-  } yield unreadCount
-
-  val isCurrentConversation = for {
-    z <- zms
-    convId <- conversationId
-    currentConv <- z.convsStats.selectedConversationId
-  } yield currentConv.contains(convId)
-
   lastMessageInfo.on(Threading.Ui) {
-    case (Some(message), Some(user), false) if message.contentString.nonEmpty =>
+    case (Some(message), Some(user), false, false, ConversationType.Group, _) =>
       showSubtitle()
-      subtitle.setText(s"[[${user.getDisplayName}:]] ${message.contentString}")
+      subtitle.setText(s"[[${user.getDisplayName}:]] ${subtitleStringForMessage(message)}")
       TextViewUtils.boldText(subtitle)
-    case (Some(message), _, _) if message.contentString.nonEmpty =>
+    case (Some(message), Some(user), false, false, ConversationType.OneToOne, _) =>
       showSubtitle()
-      subtitle.setText(s"${message.contentString}")
+      subtitle.setText(subtitleStringForMessage(message))
+    case (_, _, _, true, _, count) if count > 0 =>
+      showSubtitle()
+      subtitle.setText(s"$count new messages")
     case _ =>
       hideSubtitle()
       subtitle.setText("")
+  }
+
+  def subtitleStringForMessage(messageData: MessageData): String = {
+    //TODO: strings
+    messageData.msgType match {
+      case Message.Type.TEXT | Message.Type.TEXT_EMOJI_ONLY =>
+        messageData.contentString
+      case Message.Type.ASSET =>
+        "Shared a picture"
+      case Message.Type.ANY_ASSET =>
+        "Shared a file"
+      case Message.Type.VIDEO_ASSET =>
+        "Shared a video"
+      case Message.Type.AUDIO_ASSET =>
+        "Shared an audio message"
+      case Message.Type.LOCATION =>
+        "Shared a location"
+      case Message.Type.MISSED_CALL =>
+        "Missed call"
+      case _ =>
+        ""
+    }
+  }
+
+  def subtitleStringForMessages(messages: Iterable[MessageData]): String = {
+    ""
   }
 
   conversationInfo.on(Threading.Background) { convInfo  =>
     avatar.setMembers(convInfo._2.flatMap(_.picture), convInfo._1)
   }
 
-  unreadCount.on(Threading.Ui) { count =>
-    statusPill.setText(count.toString)
-    if (count > 0) {
-      statusPill.setVisibility(View.VISIBLE)
-    } else {
-      statusPill.setVisibility(View.INVISIBLE)
-    }
+  statusPillInfo.on(Threading.Ui) {
+    case (_, _, true, _) =>
+      statusPill.setCalling()
+    case (_, true, _, _) =>
+      statusPill.setMuted()
+    case (_, false, _, true) =>
+      statusPill.setMissedCall()
+    case (0, false, _, _) =>
+      statusPill.setHidden()
+    case (count, false, _, _) =>
+      statusPill.setCount(count)
+    case _ =>
+      statusPill.setHidden()
   }
 
   conversationName.on(Threading.Ui) { title.setText }
-
-  isCurrentConversation.zip(accentColor).on(Threading.Ui){
-    case (true, color) =>
-      separator.setBackgroundColor(ColorUtils.injectAlpha(0.5f, color.getColor()))
-    case (false, _) =>
-      separator.setBackgroundColor(getColor(R.color.white_8))
-  }
 
   private var conversationCallback: ConversationCallback = null
   private var maxAlpha: Float = .0f
@@ -160,17 +188,15 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     if (!conversationId.currentValue.contains(ConvId(iConversation.getId))) {
       title.setText(iConversation.getName)
       subtitle.setText("")
-      statusPill.setVisibility(View.INVISIBLE)
+      statusPill.setHidden()
       avatar.setConversationType(iConversation.getType)
+      closeImmediate()
     }
     conversationId.publish(ConvId(iConversation.getId), Threading.Background)
   }
 
-  def setConversationCallback(conversationCallback: ConversationCallback) {
-    this.conversationCallback = conversationCallback
-  }
-
   //TODO: Copied from java version...
+  menuIndicatorView.setClickable(false)
   menuIndicatorView.setMaxOffset(menuOpenOffset)
   menuIndicatorView.setOnClickListener(new View.OnClickListener() {
     def onClick(v: View) {
@@ -183,19 +209,26 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   def needsRedraw: Boolean = false
   def redraw(): Unit = {}
 
+  def setConversationCallback(conversationCallback: ConversationCallback) {
+    this.conversationCallback = conversationCallback
+  }
+
   override def open(): Unit =  {
     if (openState) return
     animateMenu(menuOpenOffset)
+    menuIndicatorView.setClickable(true)
     openState = true
   }
 
   def close() {
     if (openState) openState = false
+    menuIndicatorView.setClickable(false)
     animateMenu(0)
   }
 
   private def closeImmediate() {
     if (openState) openState = false
+    menuIndicatorView.setClickable(false)
     setMoveTo(0)
   }
 
