@@ -32,6 +32,7 @@ import com.waz.threading.Threading
 import com.waz.utils._
 import com.waz.utils.events.Signal
 import com.waz.zclient.controllers.global.AccentColorController
+import com.waz.zclient.core.stores.connect.InboxLinkConversation
 import com.waz.zclient.pages.main.conversationlist.views.ConversationCallback
 import com.waz.zclient.pages.main.conversationlist.views.listview.SwipeListView
 import com.waz.zclient.pages.main.conversationlist.views.row.MenuIndicatorView
@@ -59,7 +60,7 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   val accentColor = inject[AccentColorController].accentColor
   val selfId = zms.map(_.selfUserId)
 
-  private val conversationId = Signal[ConvId]()
+  private val conversationId = Signal[Option[ConvId]]()
 
   val container = ViewUtils.getView(this, R.id.conversation_row_container).asInstanceOf[LinearLayout]
   val title = ViewUtils.getView(this, R.id.conversation_title).asInstanceOf[TypefaceTextView]
@@ -73,17 +74,33 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
 
   val conversation = for {
     z <- zms
-    convId <- conversationId
+    Some(convId) <- conversationId
     conv <- z.convsStorage.signal(convId)
   } yield conv
 
-  val conversationName = conversation.map(_.displayName)
+  val conversationName = for {
+    z <- zms
+    conv <- conversation
+    memberCount <- z.membersStorage.activeMembers(conv.id).map(_.size)
+  } yield {
+    if (conv.convType == ConversationType.Incoming) {
+      getInboxName(memberCount)
+    } else {
+      conv.displayName
+    }
+  }
 
   val statusPillInfo = for {
     z <- zms
     conv <- conversation
     unreadCount <- z.messagesStorage.unreadCount(conv.id)
-  } yield (unreadCount, conv.muted, conv.unjoinedCall, conv.missedCallMessage.nonEmpty)
+  } yield (
+    unreadCount,
+    conv.muted,
+    conv.unjoinedCall,
+    conv.missedCallMessage.nonEmpty,
+    conv.incomingKnockMessage.nonEmpty,
+    conv.convType == ConversationType.WaitForConnection || conv.convType == ConversationType.Incoming)
 
   val subtitleText = for {
     z <- zms
@@ -118,22 +135,23 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
   }
 
   def subtitleStringForMessage(messageData: MessageData): String = {
-    //TODO: strings
     messageData.msgType match {
       case Message.Type.TEXT | Message.Type.TEXT_EMOJI_ONLY =>
         messageData.contentString
       case Message.Type.ASSET =>
-        "Shared a picture"
+        getString(R.string.conversation_list__shared__image)
       case Message.Type.ANY_ASSET =>
-        "Shared a file"
+        getString(R.string.conversation_list__shared__file)
       case Message.Type.VIDEO_ASSET =>
-        "Shared a video"
+        getString(R.string.conversation_list__shared__video)
       case Message.Type.AUDIO_ASSET =>
-        "Shared an audio message"
+        getString(R.string.conversation_list__shared__audio)
       case Message.Type.LOCATION =>
-        "Shared a location"
+        getString(R.string.conversation_list__shared__location)
       case Message.Type.MISSED_CALL =>
-        "Missed call"
+        getString(R.string.conversation_list__missed_call)
+      case Message.Type.KNOCK =>
+        getString(R.string.conversation_list__pinged)
       case _ =>
         ""
     }
@@ -146,15 +164,23 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     val likesCount = 0//TODO: how to get this?
     val unsentCount = messages.count(_.state == Message.Status.FAILED)
 
-    //TODO: Strings with quantities
-    val unsentString = if (unsentCount > 0)
-      if (normalMessageCount + missedCallCount + pingCount + likesCount == 0) "⚠ Unsent message️" else "⚠️"
-    else ""
+    val unsentString =
+      if (unsentCount > 0)
+        if (normalMessageCount + missedCallCount + pingCount + likesCount == 0)
+          getString(R.string.conversation_list__unsent_message_long)
+        else
+          getString(R.string.conversation_list__unsent_message_short)
+      else
+        ""
     val strings = Seq(
-    if (normalMessageCount > 0) s"$normalMessageCount new message" else "",
-    if (missedCallCount > 0)    s"$missedCallCount missed calls"   else "",
-    if (pingCount > 0)          s"$pingCount pings"                else "",
-    if (likesCount > 0)         s"$likesCount ♥"                   else ""
+      if (normalMessageCount > 0)
+        getResources.getQuantityString(R.plurals.conversation_list__new_message_count, normalMessageCount, normalMessageCount.toString) else "",
+      if (missedCallCount > 0)
+        getResources.getQuantityString(R.plurals.conversation_list__missed_calls_count, missedCallCount, missedCallCount.toString) else "",
+      if (pingCount > 0)
+        getResources.getQuantityString(R.plurals.conversation_list__pings_count, pingCount, pingCount.toString) else "",
+      if (likesCount > 0)
+        getResources.getQuantityString(R.plurals.conversation_list__new_likes_count, likesCount, likesCount.toString) else ""
     ).filter(_.nonEmpty)
     Seq(unsentString, strings.mkString(", ")).filter(_.nonEmpty).mkString(" | ")
   }
@@ -171,16 +197,21 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
     avatar.setMembers(convInfo._2.flatMap(_.picture), convInfo._1)
   }
 
+  //TODO: this is starting to look bad...
   statusPillInfo.on(Threading.Ui) {
-    case (_, _, true, _) =>
+    case (_, _, true, _, _, _) =>
       statusPill.setCalling()
-    case (_, true, _, _) =>
+    case (_, _, _, _, _, true) =>
+      statusPill.setWaitingForConnection()
+    case (_, true, _, _, _, _) =>
       statusPill.setMuted()
-    case (_, false, _, true) =>
+    case (_, false, _, true, _, _) =>
       statusPill.setMissedCall()
-    case (0, false, _, _) =>
+    case (_, false, _, _, true, _) =>
+      statusPill.setPing()
+    case (0, false, _, _, _, _) =>
       statusPill.setHidden()
-    case (count, false, _, _) =>
+    case (count, false, _, _, _, _) =>
       statusPill.setCount(count)
     case _ =>
       statusPill.setHidden()
@@ -205,17 +236,26 @@ class NewConversationListRow(context: Context, attrs: AttributeSet, style: Int) 
 
   def setConversation(iConversation: IConversation): Unit = {
     self.iConversation = iConversation
-    if (!conversationId.currentValue.contains(ConvId(iConversation.getId))) {
+    if (!conversationId.currentValue.contains(Some(ConvId(iConversation.getId)))) {
       title.setText(iConversation.getName)
+      iConversation match {
+        case conv: InboxLinkConversation =>
+          title.setText(getInboxName(conv.getSize))
+          statusPill.setWaitingForConnection()
+          conversationId.publish(None, Threading.Background)
+        case _ =>
+          title.setText(iConversation.getName)
+          statusPill.setHidden()
+          conversationId.publish(Some(ConvId(iConversation.getId)), Threading.Background)
+      }
       subtitle.setText("")
-      statusPill.setHidden()
       avatar.setConversationType(iConversation.getType)
       closeImmediate()
     }
-    conversationId.publish(ConvId(iConversation.getId), Threading.Background)
   }
 
-  //TODO: Copied from java version...
+  private def getInboxName(convSize: Int): String = getResources.getQuantityString(R.plurals.connect_inbox__link__name, convSize)
+
   menuIndicatorView.setClickable(false)
   menuIndicatorView.setMaxOffset(menuOpenOffset)
   menuIndicatorView.setOnClickListener(new View.OnClickListener() {
